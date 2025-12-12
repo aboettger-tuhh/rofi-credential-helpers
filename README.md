@@ -1,36 +1,24 @@
-# rofi-keepassxc
-![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/samedamci/rofi-keepassxc?label=ver&logo=github&style=for-the-badge)
-## Description
-Simple keepassxc-cli frontend in rofi menu.
+# rofi-credential-helper
 
-### Features
-Function | keepassxc-cli | rofi-keepassxc
-:--- | :--- | :---
-Use more than one DBs | yes | no
-Add new entry to DB | yes | **yes**
-Groups support | yes | no
-Analyze passwords for weaknesses and problems | yes | no
-Copy password to clipboard | yes | **yes**
-Copy username to clipboard | **no**| **yes**
-Copy URL to clipboard | **no** | **yes**
-Edit entry | yes | **yes**
-Estimate the entropy of a password | yes | no
-Generate random password | yes | **yes**
-List database entries | yes | **yes**
-Remove entries from DB | yes | **yes**
-Show entry informations | yes | **yes**
+## rofi-keepassxc
 
-### Installation guide
-## Arch Linux
-Install package from [AUR](https://aur.archlinux.org/packages/rofi-keepassxc/).
-```shell
-yay -S rofi-keepassxc
-```
-Or version from git master branch `rofi-keepassxc-git`.
-## From source
-Clone this repo.
-```shell
-git clone https://github.com/samedamci/rofi-keepassxc
-cd rofi-keepassxc
-```
-Add script to your PATH or use relative path to run `./rofi-keepassxc`.
+### What this script is
+
+This is a **rofi-based GUI wrapper around `keepassxc-cli`**. It lets you:
+
+- Open a KeePassXC database (optionally using a **YubiKey challenge-response slot**),
+- Pick an entry from a searchable list,
+- Then **clip** username/password (or other fields) to the clipboard, **show/edit info**, **delete**, or **add** a new entry.
+
+It relies on these external tools:
+
+- `rofi` (in `-dmenu` mode for prompts/menus, and `-e` for error popups)
+- `keepassxc-cli` (to list/show/edit/add/remove entries)
+- `xclip` (to put text into the X11 clipboard)
+- Standard Unix tools: `grep`, `cut`, `sort`, `wc`, etc.
+
+### Small behaviors are worth noting
+
+- Das Passwort
+
+
