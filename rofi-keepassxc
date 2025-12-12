@@ -187,29 +187,30 @@ done
 CACHE=$HOME/.cache/rofi-keepassxc/
 mkdir -p "$CACHE"
 
+tmp="$CACHE/tmp"
+err="$CACHE/err"
+trap 'rm -f "$tmp" "$err"' EXIT INT TERM
+
 dbpass=$(m -p "Enter your database password" -l 0 -password -width 500)
-[ ! "$dbpass" ] && exit
+[ -z "$dbpass" ] && exit 1
 
-error_pass='Error while reading the database'
-check_pass=$(echo "$dbpass" | kxc open "$db" >"$CACHE/tmp" 2>&1 && grep -oh "$error_pass" "$CACHE/tmp")
-error_db='Failed to open database file'
-check_db=$(echo "$dbpass" | kxc open "$db" >"$CACHE/tmp" 2>&1 && grep -oh "$error_db" "$CACHE/tmp")
-
-if [ "$check_pass" = "$error_pass" ]; then
-  rofi -e "$error_pass password"
-elif [ "$check_db" = "$error_db" ]; then
-  rofi -e "$error_db"
-else
-  echo "$dbpass" | kxc ls "$db" | grep -Ev 'Enter|?*/' | sort >"$CACHE/tmp"
-  elements_num=$([ "$(wc -l < "$CACHE/tmp")" -gt 20 ] && echo 20)
-
-  entry=$(m -p "Entry list" -l "$elements_num" -width 350 < "$CACHE/tmp")
-
-  if ! grep -q "$entry" "$CACHE/tmp"; then
-    add_entry || exit 1
-  else
-    choose_action || exit 1
-  fi
+# Validate credentials + database early.
+# Important: do NOT do this in $(...) command substitution, or exits won't stop the main script.
+if ! echo "$dbpass" | kxc ls "$db" >/dev/null 2>"$err"; then
+  # Keep it generic; keepassxc-cli messages vary by version, backend, yubikey prompt, etc.
+  rofi -e "Failed to open database (wrong password, missing file, or YubiKey issue)."
+  exit 1
 fi
 
-rm -r "$CACHE/tmp"
+# Main logic starts only after validation succeeded
+echo "$dbpass" | kxc ls "$db" | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"
+
+elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
+entry=$(m -p "Entry list" -l "$elements_num" -width 350 < "$tmp")
+[ -z "$entry" ] && exit 0
+
+if ! grep -Fxq -- "$entry" "$tmp"; then
+  add_entry || exit 1
+else
+  choose_action || exit 1
+fi
