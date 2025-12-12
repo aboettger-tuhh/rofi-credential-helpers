@@ -1,6 +1,6 @@
 #!/bin/sh
 
-rofi_menu() { rofi -dmenu -markup -i "$@" ;}
+rofi_menu() { rofi -normal-window -dmenu -markup -i "$@" ;}
 
 # Wrapper for keepassxc-cli that injects the --yubikey option when provided
 kxc() {
@@ -212,36 +212,70 @@ dbpass="$(rofi_menu -no-plugins -p "Enter password" -mesg "to unlock: <b>$db</b>
 # Instead of validating with an extra command (which would require an extra YubiKey touch),
 # build the entry list once and treat failure as validation failure.
 if ! kxc_with_pass ls --recursive --flatten "$db" 2>"$err" \
-  | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"; then
+  | grep -Fv -e 'Enter' -e '?*/' \
+  | grep -Fv -e 'Recycle Bin' -e 'Recycle Bin/' \
+  | grep -vE '/$' \
+  | sort >"$tmp"; then
   rofi -e "Failed to open database (wrong password, missing file, or YubiKey issue)."
   exit 1
 fi
 
-elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
-entry="$(rofi_menu -p "Entry list" -l "$elements_num"  < "$tmp")"
-[ -z "$entry" ] && exit 0
-if ! grep -Fxq -- "$entry" "$tmp"; then
-  add_entry || exit 1
-else
-  # Fetch full entry once (triggers one YubiKey touch)
-  entry_data="$(kxc_with_pass show "$db" "$entry")" || { rofi -e "Failed to read entry"; exit 1; }
+while :; do
+  elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
+  entry="$(rofi_menu -p "Entry list" -l "$elements_num" < "$tmp")"
+  [ -z "$entry" ] && exit 0
 
-  action="$(printf "Clip username\nClip password\nShow info\nDelete" | \
-    rofi_menu -p "Choose action for \"$entry\" entry" -l 4 )" || exit 1
+  if ! grep -Fxq -- "$entry" "$tmp"; then
+    add_entry || exit 1
 
-  case "$action" in
-    "Clip username")
-      printf "%s" "$entry_data" | grep -F 'UserName:' | cut -b 11- | xclip -sel clip
-      ;;
-    "Clip password")
-      # copy password and clear clipboard after $timeout seconds
-      printf "%s" "$entry_data" | grep -F 'Password:' | cut -b 11- | xclip -sel clip
-      ( sleep "$timeout"; printf '' | xclip -sel clip ) &
-      ;;
-    "Show info")
-      # show the cached entry without calling keepassxc-cli again
-      printf "%s" "$entry_data" | rofi_menu -p "Info" -l 7
-      ;;
-    Delete) delete_entry ;;
-  esac
-fi
+    # Update local list (avoid extra keepassxc-cli ls -> avoids extra YubiKey touch)
+    printf "%s\n" "$entry" >>"$tmp"
+    sort -u -o "$tmp" "$tmp"
+    continue
+  fi
+
+  # Fetch full entry once (may trigger one YubiKey touch)
+  entry_data="$(kxc_with_pass show "$db" "$entry")" || { rofi -e "Failed to read entry"; continue; }
+
+  while :; do
+    echo "Choose action for \"$entry\" entry"
+    action="$(printf "Clip username\nClip password\nShow info\nDelete\nBack" | \
+      rofi_menu -p "Choose action for \"$entry\" entry" -l 5 )" || break
+
+    case "$action" in
+      "Clip username")
+        printf "%s" "$entry_data" | grep -F 'UserName:' | cut -b 11- | xclip -sel clip
+        ;;
+      "Clip password")
+        kxc_with_pass clip "$db" "$entry" "$timeout"
+        ;;
+      "Show info")
+        show_info_for="$entry_data"
+        ;;
+      Delete)
+        delete_entry
+
+        # Update local list (avoid extra keepassxc-cli ls -> avoids extra YubiKey touch)
+        grep -Fxv -- "$entry" "$tmp" >"$tmp.new" && mv "$tmp.new" "$tmp"
+        break
+        ;;
+      Back)
+        break
+        ;;
+    esac
+    if [ -n "$show_info_for" ]; then
+      while :; do
+        echo "Show Info for \"$show_info_for\" entry"
+        action="$(printf "%s\nBack" "$show_info_for" | \
+          rofi_menu -p "Info" -l 8 )" || break
+
+        case "$action" in
+          Back)
+            break
+            ;;
+        esac
+      done
+    fi
+  done
+done
+
