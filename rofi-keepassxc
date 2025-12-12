@@ -1,6 +1,6 @@
 #!/bin/sh
 
-rofi_menu() { rofi -dmenu -i "$@" ;}
+rofi_menu() { rofi -dmenu -markup -i "$@" ;}
 
 # Wrapper for keepassxc-cli that injects the --yubikey option when provided
 kxc() {
@@ -9,7 +9,9 @@ kxc() {
   else
     sub_command="$1"
     shift || true
+    show_yubikey_prompt
     keepassxc-cli "${sub_command}" --yubikey "$yk" "$@"
+    hide_yubikey_prompt
   fi
 }
 
@@ -25,8 +27,23 @@ kxc_with_pass() {
   echo "$dbpass" | kxc "$@"
 }
 
+show_yubikey_prompt() {
+  # Show a visible hint while keepassxc-cli is waiting for YubiKey touch.
+  # Only when yubikey mode is enabled.
+  yk_prompt_pid=""
+  [ -z "$yk" ] && return 0
+  rofi -markup -e "Please present or touch your YubiKey to continue." &
+  yk_prompt_pid="$!"
+}
+
+hide_yubikey_prompt() {
+  [ -n "$yk_prompt_pid" ] || return 0
+  kill "$yk_prompt_pid" 2>/dev/null || true
+  yk_prompt_pid=""
+}
+
 element_has() {
-  # Checks whether the current $element contains the given label (e.g. "Title: ").
+  # Checks whether the current $element contains the given label (e.g. "Title: ").rofi -e
   printf "%s" "$element" | grep -qF "$1"
 }
 
@@ -54,10 +71,10 @@ clip_url() { clip_from_element 6 ;}
 clip_notes() { clip_from_element 8 ;}
 
 generate_password() {
-  char_num="$(require_value "Number of password characters" -width 400)"
-  numbers="$(ask_yes_no_flag "Use numbers?" "-n" -width 350)"
-  special="$(ask_yes_no_flag "Use special characters?" "-s" -width 400)"
-  ext_ascii="$(ask_yes_no_flag "Use extended ASCII?" "-e" -width 400)"
+  char_num="$(require_value "Number of password characters" )"
+  numbers="$(ask_yes_no_flag "Use numbers?" "-n" )"
+  special="$(ask_yes_no_flag "Use special characters?" "-s" )"
+  ext_ascii="$(ask_yes_no_flag "Use extended ASCII?" "-e" )"
 }
 
 clip_element() {
@@ -73,18 +90,18 @@ clip_element() {
 edit_element() {
   case "$element" in
     Title:\ *)
-      new_title="$(require_value "Enter new entry title" -width 400)"
+      new_title="$(require_value "Enter new entry title" )"
       kxc_with_pass edit -t "$new_title" "$db" "$entry"
       ;;
     UserName:\ *)
-      new_username="$(require_value "Enter new entry username" -width 400)"
+      new_username="$(require_value "Enter new entry username" )"
       kxc_with_pass edit -u "$new_username" "$db" "$entry"
       ;;
     Password:\ *)
-      action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 -width 350)" || exit 1
+      action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 )" || exit 1
       case "$action" in
         "Enter password")
-          new_password="$(rofi_menu -p "Enter new entry password" -l 0 -password)" || exit 1
+          new_password="$(rofi_menu -no-plugins -p "Enter new entry password" -l 0 -password)" || exit 1
           [ -z "$new_password" ] && exit 1
           printf "%s" "$dbpass\n$new_password" | kxc edit -p "$db" "$entry"
           ;;
@@ -95,7 +112,7 @@ edit_element() {
       esac
       ;;
     URL:\ *)
-      new_url="$(require_value "Enter new entry URL" -width 400)"
+      new_url="$(require_value "Enter new entry URL" )"
       kxc_with_pass edit --url "$new_url" "$db" "$entry"
       ;;
     Notes:\ *)
@@ -105,7 +122,7 @@ edit_element() {
 }
 
 show_entry_info() {
-  element="$(kxc_with_pass show "$db" "$entry" | grep -Ev 'Enter|?*/' | rofi_menu -p "Info" -l 7 -width 350)"
+  element="$(kxc_with_pass show "$db" "$entry" | grep -Ev 'Enter|?*/' | rofi_menu -p "Info" -l 7 )"
   [ "$element" ] && action="$(printf "Clip\nEdit" | rofi_menu -p "Choose action" -l 2)"
   case "$action" in
     Clip) clip_element ;;
@@ -120,11 +137,11 @@ delete_entry() {
 
 add_entry() {
   if [ "$entry" ]; then
-    action="$(printf "Yes\nNo" | rofi_menu -p "Add \"$entry\" entry?" -l 2 -width 400)"
+    action="$(printf "Yes\nNo" | rofi_menu -p "Add \"$entry\" entry?" -l 2 )"
     case "$action" in
       Yes)
-        username="$(require_value "Enter entry username" -width 400)"
-        action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 -width 300)"
+        username="$(require_value "Enter entry username" )"
+        action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 )"
         [ -z "$action" ] && exit 1
         ;;
       *) exit ;;
@@ -135,7 +152,7 @@ add_entry() {
 
   case "$action" in
     "Enter password")
-      password="$(rofi_menu -p "Enter new entry password" -l 0 -password -width 400)" || exit 1
+      password="$(rofi_menu -no-plugins -p "Enter new entry password" -l 0 -password )" || exit 1
       [ -z "$password" ] && exit 1
       printf "%s" "$dbpass\n$password" | kxc add "$db" "$entry" -u "$username" -p
       ;;
@@ -150,7 +167,7 @@ add_entry() {
 
 choose_action() {
   [ "$entry" ] && action="$(printf "Clip username\nClip password\nShow info\nDelete" | \
-    rofi_menu -p "Choose action for \"$entry\" entry" -l 4 -width 400)"
+    rofi_menu -p "Choose action for \"$entry\" entry" -l 4 )"
   case "$action" in
     "Clip username") clip_username ;;
     "Clip password") clip_password ;;
@@ -189,24 +206,42 @@ tmp="$CACHE/tmp"
 err="$CACHE/err"
 trap 'rm -f "$tmp" "$err"' EXIT INT TERM
 
-dbpass="$(rofi_menu -p "Enter your database password" -l 0 -password -width 500)"
+dbpass="$(rofi_menu -no-plugins -p "Enter password" -mesg "to unlock: <b>$db</b>" -l 0 -password )"
 [ -z "$dbpass" ] && exit 1
 
-# Validate credentials + database early.
-# Important: do NOT do this in $(...) command substitution, or exits won't stop the main script.
-if ! kxc_with_pass ls "$db" >/dev/null 2>"$err"; then
-  # Keep it generic; keepassxc-cli messages vary by version, backend, yubikey prompt, etc.
+# Instead of validating with an extra command (which would require an extra YubiKey touch),
+# build the entry list once and treat failure as validation failure.
+if ! kxc_with_pass ls --recursive --flatten "$db" 2>"$err" \
+  | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"; then
   rofi -e "Failed to open database (wrong password, missing file, or YubiKey issue)."
   exit 1
 fi
 
-# Main logic starts only after validation succeeded
-kxc_with_pass ls --recursive --flatten "$db" | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"
 elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
-entry="$(rofi_menu -p "Entry list" -l "$elements_num" -width 350 < "$tmp")"
+entry="$(rofi_menu -p "Entry list" -l "$elements_num"  < "$tmp")"
 [ -z "$entry" ] && exit 0
 if ! grep -Fxq -- "$entry" "$tmp"; then
   add_entry || exit 1
 else
-  choose_action || exit 1
+  # Fetch full entry once (triggers one YubiKey touch)
+  entry_data="$(kxc_with_pass show "$db" "$entry")" || { rofi -e "Failed to read entry"; exit 1; }
+
+  action="$(printf "Clip username\nClip password\nShow info\nDelete" | \
+    rofi_menu -p "Choose action for \"$entry\" entry" -l 4 )" || exit 1
+
+  case "$action" in
+    "Clip username")
+      printf "%s" "$entry_data" | grep -F 'UserName:' | cut -b 11- | xclip -sel clip
+      ;;
+    "Clip password")
+      # copy password and clear clipboard after $timeout seconds
+      printf "%s" "$entry_data" | grep -F 'Password:' | cut -b 11- | xclip -sel clip
+      ( sleep "$timeout"; printf '' | xclip -sel clip ) &
+      ;;
+    "Show info")
+      # show the cached entry without calling keepassxc-cli again
+      printf "%s" "$entry_data" | rofi_menu -p "Info" -l 7
+      ;;
+    Delete) delete_entry ;;
+  esac
 fi
