@@ -151,12 +151,13 @@ choose_action() {
 }
 
 print_help() {
-  printf "usage: rofi-keepassxc [-h] [-d]
+  printf "usage: rofi-keepassxc [-h] [-d] [-t]
 
   arguments:
   -h, --help                show this help message and exit
   -d, --database [file]     specify keepass database file path
-  -t, --timeout [value]      specify a timout in second for clipped password; default to 15 seconds\n\n"
+  -t, --timeout [value]      specify a timeout in second for clipped password; default to 15 seconds\n\n"
+  -t, --timeout [value]          specify a timeout in seconds for clipped password; default to 15 seconds\n\n"
 }
 
 [ ! "$1" ] && { print_help; exit ;}
