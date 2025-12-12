@@ -1,4 +1,9 @@
 #!/bin/sh
+# Copyright (c) 2020, samedamci <samedamci@disroot.org>
+# Copyright (c) 2025, Andreas Böttger  <andreas.boettger@tuhh.de>
+# SPDX-License-Identifier: CC0-1.0, ISC
+# All changes made since 12.12.2025 are dedicated to the public domain under CC0 1.0.
+# See LICENSE-CC0.
 
 rofi_menu() { rofi -normal-window -dmenu -markup -i "$@" ;}
 
@@ -221,7 +226,15 @@ if ! kxc_with_pass ls --recursive --flatten "$db" 2>"$err" \
 fi
 
 while :; do
-  elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
+  elements_num=$(
+    if [ "$(wc -l < "$tmp")" -gt 20 ]
+    then
+      echo 20
+    else
+      wc -l < "$tmp"
+    fi
+  )
+
   entry="$(rofi_menu -p "Entry list" -l "$elements_num" < "$tmp")"
   [ -z "$entry" ] && exit 0
 

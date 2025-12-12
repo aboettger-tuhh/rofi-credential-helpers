@@ -1,8 +1,8 @@
-# rofi-credential-helper
+# Rofi Credential Helpers
 
-## rofi-keepassxc
+## Rofi KeePassXC
 
-### What this script is
+### 'What this script is?'
 
 This is a **rofi-based GUI wrapper around `keepassxc-cli`**. It lets you:
 
@@ -19,6 +19,9 @@ It relies on these external tools:
 
 ### Small behaviors are worth noting
 
-- Das Passwort
+- The password must be re-entered each time it is called up
+- I have tried to reduce the YubiKey access to a reasonable minimum.
 
+## Rofi Secret Service
 
+coming soon
