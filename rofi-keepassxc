@@ -1,110 +1,112 @@
 #!/bin/sh
 
-m() { rofi -dmenu -i "$@" ;}
+rofi_menu() { rofi -dmenu -i "$@" ;}
 
 # Wrapper for keepassxc-cli that injects the --yubikey option when provided
 kxc() {
   if [ -z "$yk" ]; then
-    keepassxc-cli "$@";
+    keepassxc-cli "$@"
   else
     sub_command="$1"
     shift || true
-    keepassxc-cli "${sub_command}" --yubikey "$yk" "$@";
+    keepassxc-cli "${sub_command}" --yubikey "$yk" "$@"
   fi
+}
+
+require_value() {
+  # Usage: require_value "Prompt" [rofi args...]
+  value="$(rofi_menu -p "$1" -l 0 "$@")" || exit 1
+  [ -z "$value" ] && exit 1
+  printf "%s" "$value"
+}
+
+kxc_with_pass() {
+  # Keeps all keepassxc-cli calls consistent and easy to spot.
+  echo "$dbpass" | kxc "$@"
+}
+
+element_has() {
+  # Checks whether the current $element contains the given label (e.g. "Title: ").
+  printf "%s" "$element" | grep -qF "$1"
+}
+
+clip_from_element() {
+  # Usage: clip_from_element <prefix_length_to_drop>
+  printf "%s" "$element" | cut -b "$1"- | xclip -sel clip
+}
+
+ask_yes_no_flag() {
+  # Usage: ask_yes_no_flag "Prompt" "-flag" [rofi args...]
+  answer="$(printf "Yes\nNo" | rofi_menu -p "$1" -l 2 "$@")" || exit 1
+  case "$answer" in
+    Yes) printf "%s" "$2" ;;
+    No)  printf "%s" "" ;;
+    *)   exit 1 ;;
+  esac
 }
 
 clip_username() {
-  echo "$dbpass" | kxc show "$db" "$entry" | grep 'UserName:' | \
-    cut -b 11- | xclip -sel clip
+  kxc_with_pass show "$db" "$entry" | grep -F 'UserName:' | cut -b 11- | xclip -sel clip
 }
-clip_password() { echo "$dbpass" | kxc clip "$db" "$entry" "$timeout" ;}
-clip_title() { echo "$element" | cut -b 8- | xclip -sel clip ;}
-clip_url() { echo "$element" | cut -b 6- | xclip -sel clip ;}
-clip_notes() { echo "$element" | cut -b 8- | xclip -sel clip ;}
+clip_password() { kxc_with_pass clip "$db" "$entry" "$timeout" ;}
+clip_title() { clip_from_element 8 ;}
+clip_url() { clip_from_element 6 ;}
+clip_notes() { clip_from_element 8 ;}
 
 generate_password() {
-  char_num=$(m -p "Number of password characters" -l 0 -width 400)
-  [ ! "$char_num" ] && exit
-
-  numbers=$(printf "Yes\nNo" | m -p "Use numbers?" -l 2 -width 350)
-
-  case "$numbers" in
-    Yes) numbers="-n";;
-    No) numbers="";;
-    *) exit;;
-  esac
-
-  special=$(printf "Yes\nNo" | m -p "Use special characters?" -l 2 -width 400)
-
-  case "$special" in
-    Yes) special=" -s";;
-    No) special="";;
-    *) exit;;
-  esac
-
-  ext_ascii=$(printf "Yes\nNo" | m -p "Use extended ASCII?" -l 2 -width 400)
-
-  case "$ext_ascii" in
-    Yes) ext_ascii=" -e";;
-    No) ext_ascii="";;
-    *) exit;;
-  esac
+  char_num="$(require_value "Number of password characters" -width 400)"
+  numbers="$(ask_yes_no_flag "Use numbers?" "-n" -width 350)"
+  special="$(ask_yes_no_flag "Use special characters?" "-s" -width 400)"
+  ext_ascii="$(ask_yes_no_flag "Use extended ASCII?" "-e" -width 400)"
 }
 
 clip_element() {
-  if echo "$element" | grep -q 'Title: '; then
-    clip_title
-  elif echo "$element" | grep -q 'UserName: '; then
-    clip_username
-  elif echo "$element" | grep -q 'Password: '; then
-    clip_password
-  elif echo "$element" | grep -q 'URL: '; then
-    clip_url
-  elif echo "$element" | grep -q 'Notes: '; then
-    clip_notes
-  fi
+  case "$element" in
+    Title:\ *)    clip_title ;;
+    UserName:\ *) clip_username ;;
+    Password:\ *) clip_password ;;
+    URL:\ *)      clip_url ;;
+    Notes:\ *)    clip_notes ;;
+  esac
 }
 
 edit_element() {
-  if echo "$element" | grep 'Title: '
-  then
-    new_title=$(m -p "Enter new entry title" -l 0 -width 400)
-    echo "$dbpass" | kxc edit -t "$new_title" "$db" "$entry"
-  elif echo "$element" | grep 'UserName: '
-  then
-    new_username=$(m -p "Enter new entry username" -l 0 -width 400)
-    echo "$dbpass" | kxc edit -u "$new_username" "$db" "$entry"
-  elif echo "$element" | grep 'Password: '
-  then
-    action=$(printf "Enter password\nGenerate password" | m -p "Choose action" -l 2 width 350)
-
-    case "$action" in
-      "Enter password")
-        new_password=$(m -p "Enter new entry password" -l 0 -password)
-        printf "%s" "$dbpass\n$new_password" | kxc edit -p "$db" "$entry"
-        ;;
-      "Generate password")
-        generate_password
-        echo "$dbpass" | kxc edit -g -L "$(echo "$char_num $numbers$special$ext_ascii")" \
-          --exclude-similar "$db" "$entry"
-        ;;
-    esac
-
-  elif echo "$element" | grep 'URL: '
-  then
-    NEW_URL=$(m -p "Enter new entry URL" -l 0 -width 400)
-    echo "$dbpass" | kxc edit --url "$NEW_URL" "$db" "$entry"
-  elif echo "$element" | grep 'Notes: '
-  then
-    rofi -e "You cannot edit notes for entries now."
-  fi
+  case "$element" in
+    Title:\ *)
+      new_title="$(require_value "Enter new entry title" -width 400)"
+      kxc_with_pass edit -t "$new_title" "$db" "$entry"
+      ;;
+    UserName:\ *)
+      new_username="$(require_value "Enter new entry username" -width 400)"
+      kxc_with_pass edit -u "$new_username" "$db" "$entry"
+      ;;
+    Password:\ *)
+      action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 -width 350)" || exit 1
+      case "$action" in
+        "Enter password")
+          new_password="$(rofi_menu -p "Enter new entry password" -l 0 -password)" || exit 1
+          [ -z "$new_password" ] && exit 1
+          printf "%s" "$dbpass\n$new_password" | kxc edit -p "$db" "$entry"
+          ;;
+        "Generate password")
+          generate_password
+          kxc_with_pass edit -g -L "$char_num $numbers$special$ext_ascii" --exclude-similar "$db" "$entry"
+          ;;
+      esac
+      ;;
+    URL:\ *)
+      new_url="$(require_value "Enter new entry URL" -width 400)"
+      kxc_with_pass edit --url "$new_url" "$db" "$entry"
+      ;;
+    Notes:\ *)
+      rofi -e "You cannot edit notes for entries now."
+      ;;
+  esac
 }
 
 show_entry_info() {
-  element=$(echo "$dbpass" | kxc show "$db" "$entry" | grep -Ev 'Enter|?*/' | m -p "Info" -l 7 -width 350)
-
-  [ "$element" ] && action=$(printf "Clip\nEdit" | m -p "Choose action" -l 2)
-
+  element="$(kxc_with_pass show "$db" "$entry" | grep -Ev 'Enter|?*/' | rofi_menu -p "Info" -l 7 -width 350)"
+  [ "$element" ] && action="$(printf "Clip\nEdit" | rofi_menu -p "Choose action" -l 2)"
   case "$action" in
     Clip) clip_element ;;
     Edit) edit_element ;;
@@ -112,47 +114,43 @@ show_entry_info() {
 }
 
 delete_entry() {
-  echo "$dbpass" | kxc rm "$db" "$entry"
+  kxc_with_pass rm "$db" "$entry"
   rofi -e "Deleted \"$entry\" entry"
 }
 
 add_entry() {
   if [ "$entry" ]; then
-    action=$(printf "Yes\nNo" | m -p "Add \"$entry\" entry?" -l 2 -width 400)
-
+    action="$(printf "Yes\nNo" | rofi_menu -p "Add \"$entry\" entry?" -l 2 -width 400)"
     case "$action" in
       Yes)
-        username=$(m -p "Enter entry username" -l 0 -width 400)
-        [ ! "$username" ] && exit
-
-        action=$(printf "Enter password\nGenerate password" | m -p "Choose action" -l 2 -width 300)
-        [ ! "$action" ] && exit
+        username="$(require_value "Enter entry username" -width 400)"
+        action="$(printf "Enter password\nGenerate password" | rofi_menu -p "Choose action" -l 2 -width 300)"
+        [ -z "$action" ] && exit 1
         ;;
-      *) exit;;
+      *) exit ;;
     esac
-
-  else exit; fi
+  else
+    exit
+  fi
 
   case "$action" in
     "Enter password")
-      password=$(m -p "Enter new entry password" -l 0 -password -width 400)
+      password="$(rofi_menu -p "Enter new entry password" -l 0 -password -width 400)" || exit 1
+      [ -z "$password" ] && exit 1
       printf "%s" "$dbpass\n$password" | kxc add "$db" "$entry" -u "$username" -p
       ;;
     "Generate password")
       generate_password
-      echo "$dbpass" | kxc add "$db" "$entry" -u "$username" -g -L \
-        "$(echo "$char_num $numbers$special$ext_ascii")"
+      kxc_with_pass add "$db" "$entry" -u "$username" -g -L "$char_num $numbers$special$ext_ascii"
       rofi -e "Successfully added \"$entry\" entry"
       ;;
-    *) exit
+    *) exit ;;
   esac
-
 }
 
 choose_action() {
   [ "$entry" ] && action="$(printf "Clip username\nClip password\nShow info\nDelete" | \
-    m -p "Choose action for \"$entry\" entry" -l 4 -width 400)"
-
+    rofi_menu -p "Choose action for \"$entry\" entry" -l 4 -width 400)"
   case "$action" in
     "Clip username") clip_username ;;
     "Clip password") clip_password ;;
@@ -191,24 +189,22 @@ tmp="$CACHE/tmp"
 err="$CACHE/err"
 trap 'rm -f "$tmp" "$err"' EXIT INT TERM
 
-dbpass=$(m -p "Enter your database password" -l 0 -password -width 500)
+dbpass="$(rofi_menu -p "Enter your database password" -l 0 -password -width 500)"
 [ -z "$dbpass" ] && exit 1
 
 # Validate credentials + database early.
 # Important: do NOT do this in $(...) command substitution, or exits won't stop the main script.
-if ! echo "$dbpass" | kxc ls "$db" >/dev/null 2>"$err"; then
+if ! kxc_with_pass ls "$db" >/dev/null 2>"$err"; then
   # Keep it generic; keepassxc-cli messages vary by version, backend, yubikey prompt, etc.
   rofi -e "Failed to open database (wrong password, missing file, or YubiKey issue)."
   exit 1
 fi
 
 # Main logic starts only after validation succeeded
-echo "$dbpass" | kxc ls "$db" | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"
-
+kxc_with_pass ls --recursive --flatten "$db" | grep -Fv -e 'Enter' -e '?*/' | sort >"$tmp"
 elements_num=$([ "$(wc -l < "$tmp")" -gt 20 ] && echo 20 || wc -l < "$tmp")
-entry=$(m -p "Entry list" -l "$elements_num" -width 350 < "$tmp")
+entry="$(rofi_menu -p "Entry list" -l "$elements_num" -width 350 < "$tmp")"
 [ -z "$entry" ] && exit 0
-
 if ! grep -Fxq -- "$entry" "$tmp"; then
   add_entry || exit 1
 else
